@@ -1,0 +1,3 @@
+# Only needed for the "ollama" and "anthropic" backends.
+# The default "template" backend runs on the standard library alone.
+requests>=2.31

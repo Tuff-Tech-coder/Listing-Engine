@@ -1,0 +1,42 @@
+[
+  {
+    "sku": "TT-EARBUDS-01",
+    "kind": "physical",
+    "name": "Wireless Bluetooth Earbuds with Charging Case",
+    "category_hint": "wireless earbuds bluetooth headphones",
+    "brand": "AcmeSound",
+    "price": 39.99,
+    "features": [
+      "Bluetooth 5.3 with low-latency mode",
+      "32-hour total battery with USB-C charging case",
+      "IPX5 water resistant for workouts",
+      "Touch controls and built-in mic"
+    ],
+    "attributes": {
+      "type": "In-Ear",
+      "color": "Matte Black",
+      "connectivity": "Bluetooth",
+      "condition": "New"
+    },
+    "keywords_seed": ["noise isolating", "running earbuds", "usb-c"]
+  },
+  {
+    "sku": "KDP-MAZE-KIDS-01",
+    "kind": "book",
+    "name": "Big Book of Mazes for Kids",
+    "category_hint": "children's activity book maze puzzles ages 6-10",
+    "price": 6.99,
+    "features": [
+      "100 mazes, easy to hard",
+      "Large print, single-sided pages",
+      "Solutions in the back"
+    ],
+    "attributes": {
+      "format": "Paperback",
+      "trim_size": "8.5x11",
+      "audience": "kids ages 6-10",
+      "page_count": "104"
+    },
+    "keywords_seed": ["screen free fun", "travel activity", "fine motor skills", "gift for kids"]
+  }
+]
