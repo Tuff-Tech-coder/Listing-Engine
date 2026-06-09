@@ -48,14 +48,3 @@ LISTING_BACKEND=anthropic ANTHROPIC_API_KEY=sk-... python cli.py --file sample_p
 | `cli.py` | command-line runner |
 | `sample_products.json` | one physical good, one KDP book |
 
-## What it does NOT do yet (the roadmap)
-
-1. **Live API push for eBay + Etsy.** Payloads are built and validated; the
-   `push()` methods are stubbed with exactly where to add OAuth. eBay:
-   `createOrReplaceInventoryItem → createOffer → publishOffer`. Etsy v3:
-   `createDraftListing → uploadListingImage → publish`.
-2. **Per-platform LLM passes.** Today one generation serves all three; a second
-   pass per platform would optimize each title/tag set harder.
-3. **Image handling.** Background cleanup + alt text + upload.
-4. **Inventory sync / oversell guard** — the natural next module once listings
-   are live on more than one channel.
