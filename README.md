@@ -1,6 +1,6 @@
 # Multi-Channel Listing Engine
 
-Generate marketplace listings for **eBay**, **Etsy**, and **Amazon KDP** from a
+Generates marketplace listings for **eBay**, **Etsy**, and **Amazon KDP** from a
 single product description. Describe a product once; the engine produces
 platform-optimized copy and pushes it (eBay/Etsy) or hands you a paste-ready
 metadata sheet (KDP, which has no public API).
