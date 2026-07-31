@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from models import GeneratedListing, Product
-from platforms import ADAPTERS
-import llm
+from . import llm
+from .models import GeneratedListing, Product
+from .platforms import ADAPTERS
 
 
 def generate_listings(
