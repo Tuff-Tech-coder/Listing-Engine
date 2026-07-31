@@ -85,7 +85,7 @@ def _generate_anthropic(product: Product) -> dict[str, Any]:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
-    model = os.environ.get("LISTING_LLM_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("LISTING_LLM_MODEL", "claude-sonnet-5")
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
