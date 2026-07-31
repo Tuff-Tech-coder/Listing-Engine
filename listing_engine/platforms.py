@@ -109,8 +109,11 @@ class EtsyAdapter:
         if len(tags) > self.TAG_MAX_COUNT:
             w.append(f"More than {self.TAG_MAX_COUNT} tags — kept first {self.TAG_MAX_COUNT}.")
             tags = tags[: self.TAG_MAX_COUNT]
-        if len(tags) < 13:
-            w.append(f"Only {len(tags)}/13 tags used — Etsy SEO rewards using all 13.")
+        if len(tags) < self.TAG_MAX_COUNT:
+            w.append(
+                f"Only {len(tags)}/{self.TAG_MAX_COUNT} tags used — "
+                f"Etsy SEO rewards using all {self.TAG_MAX_COUNT}."
+            )
 
         listing = GeneratedListing(
             platform=self.name,
