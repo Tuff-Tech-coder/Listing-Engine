@@ -1,15 +1,17 @@
 """Command-line runner.
 
+Installed as the `listing-engine` console script (`pip install -e .`).
+
 Examples
 --------
 # Runs out of the box, no setup (template backend):
-python cli.py --file sample_products.json --platforms ebay,etsy,kdp
+listing-engine --file sample_products.json --platforms ebay,etsy,kdp
 
 # Real copy via your local Ollama model:
-LISTING_BACKEND=ollama LISTING_LLM_MODEL=llama3.1 python cli.py --file sample_products.json
+LISTING_BACKEND=ollama LISTING_LLM_MODEL=llama3.1 listing-engine --file sample_products.json
 
 # Real copy via Claude:
-LISTING_BACKEND=anthropic ANTHROPIC_API_KEY=sk-... python cli.py --file sample_products.json
+LISTING_BACKEND=anthropic ANTHROPIC_API_KEY=sk-... listing-engine --file sample_products.json
 """
 
 from __future__ import annotations
@@ -18,8 +20,8 @@ import argparse
 import json
 import os
 
-from engine import generate_listings
-from models import Product
+from .engine import generate_listings
+from .models import Product
 
 
 def _print(listing) -> None:

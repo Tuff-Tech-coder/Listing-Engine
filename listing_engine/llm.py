@@ -18,7 +18,7 @@ import os
 import textwrap
 from typing import Any
 
-from models import Product
+from .models import Product
 
 # The structured object every backend must return.
 GENERATION_SCHEMA = {

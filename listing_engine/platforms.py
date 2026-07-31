@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from models import GeneratedListing, Product
+from .models import GeneratedListing, Product
 
 
 def _truncate(text: str, limit: int, warnings: list[str], label: str) -> str:
