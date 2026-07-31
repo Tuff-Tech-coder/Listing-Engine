@@ -7,7 +7,7 @@ and each platform adapter renders that content into its own constrained format.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -27,7 +27,7 @@ class Product:
     notes: str = ""               # anything else the LLM should know
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "Product":
+    def from_dict(d: dict[str, Any]) -> Product:
         known = {f for f in Product.__dataclass_fields__}  # type: ignore[attr-defined]
         return Product(**{k: v for k, v in d.items() if k in known})
 
