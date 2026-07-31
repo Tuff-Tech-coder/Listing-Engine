@@ -53,16 +53,16 @@ class EbayAdapter:
         listing.extra["api_payload"] = self._payload(product, listing)
         return listing
 
-    def _payload(self, product: Product, l: GeneratedListing) -> dict[str, Any]:
+    def _payload(self, product: Product, listing: GeneratedListing) -> dict[str, Any]:
         # Shape mirrors the eBay Sell Inventory API (createOrReplaceInventoryItem
         # + createOffer). Drop in OAuth + publishOffer to go live.
         return {
             "inventory_item": {
                 "sku": product.sku,
                 "product": {
-                    "title": l.title,
-                    "description": l.description,
-                    "aspects": {k: [v] for k, v in l.attributes.items()},
+                    "title": listing.title,
+                    "description": listing.description,
+                    "aspects": {k: [v] for k, v in listing.attributes.items()},
                 },
                 "availability": {
                     "shipToLocationAvailability": {"quantity": 1}
@@ -72,7 +72,7 @@ class EbayAdapter:
                 "sku": product.sku,
                 "marketplaceId": self.MARKETPLACE,
                 "format": "FIXED_PRICE",
-                "categoryHint": l.category,
+                "categoryHint": listing.category,
                 "pricingSummary": {
                     "price": {"value": str(product.price or 0), "currency": "USD"}
                 },
@@ -194,19 +194,19 @@ class KdpAdapter:
         listing.extra["paste_sheet"] = self._sheet(title, subtitle, listing, cats)
         return listing
 
-    def _sheet(self, title, subtitle, l: GeneratedListing, cats) -> str:
+    def _sheet(self, title, subtitle, listing: GeneratedListing, cats) -> str:
         lines = [
             "=== KDP METADATA (paste into the KDP form) ===",
             f"Title:     {title}",
             f"Subtitle:  {subtitle}",
             "",
             "Description (paste into the description box):",
-            l.description,
+            listing.description,
             "",
             "7 Keywords (one per box):",
         ]
         for i in range(self.KEYWORD_SLOTS):
-            lines.append(f"  {i+1}. {l.keywords[i] if i < len(l.keywords) else ''}")
+            lines.append(f"  {i+1}. {listing.keywords[i] if i < len(listing.keywords) else ''}")
         lines += ["", f"Categories (pick up to {self.CATEGORY_SLOTS}): {cats}"]
         return "\n".join(lines)
 
