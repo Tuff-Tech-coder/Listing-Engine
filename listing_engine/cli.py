@@ -51,19 +51,21 @@ def main() -> None:
     ap.add_argument("--json-out", help="write all listings to this JSON file")
     args = ap.parse_args()
 
-    data = json.load(open(args.file))
+    with open(args.file, encoding="utf-8") as fh:
+        data = json.load(fh)
     products = [Product.from_dict(d) for d in (data if isinstance(data, list) else [data])]
     platforms = [p.strip() for p in args.platforms.split(",") if p.strip()]
 
     out: dict[str, dict] = {}
     for product in products:
         listings = generate_listings(product, platforms, backend=args.backend)
-        out[product.sku] = {p: l.to_dict() for p, l in listings.items()}
+        out[product.sku] = {p: listing.to_dict() for p, listing in listings.items()}
         for listing in listings.values():
             _print(listing)
 
     if args.json_out:
-        json.dump(out, open(args.json_out, "w"), indent=2)
+        with open(args.json_out, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, indent=2)
         print(f"\nWrote {args.json_out}")
 
 
