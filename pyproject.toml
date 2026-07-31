@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "listing-engine"
+version = "0.1.0"
+description = "Generate platform-optimized marketplace listings for eBay, Etsy and Amazon KDP from one product description"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+keywords = ["llm", "ecommerce", "ebay", "etsy", "kdp", "content-generation"]
+dependencies = []
+
+[project.optional-dependencies]
+anthropic = ["requests>=2.31"]
+ollama = ["requests>=2.31"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+listing-engine = "listing_engine.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
