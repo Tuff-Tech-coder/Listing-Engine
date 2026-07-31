@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import textwrap
+import time
 from typing import Any
 
 from .models import Product
@@ -77,30 +79,85 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(t[start : end + 1])
 
 
+# --- retry policy -----------------------------------------------------------
+
+# Transient statuses worth retrying. 429 is rate limiting, 529 is Anthropic's
+# "overloaded" response, and 5xx are server-side faults. Everything else --
+# 400 (bad request), 401 (bad key), 404 -- is a caller problem that retrying
+# only delays.
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504, 529})
+_MAX_ATTEMPTS = 4
+_BACKOFF_BASE_SECONDS = 1.0
+_BACKOFF_CAP_SECONDS = 30.0
+
+
+def _backoff_seconds(resp: Any, attempt: int) -> float:
+    """How long to wait before the next attempt.
+
+    Honours the API's Retry-After header when present; otherwise falls back
+    to exponential backoff with jitter so concurrent workers don't retry in
+    lockstep.
+    """
+    if resp is not None:
+        header = resp.headers.get("retry-after")
+        if header:
+            try:
+                return min(float(header), _BACKOFF_CAP_SECONDS)
+            except ValueError:
+                pass  # malformed header -- fall through to backoff
+    delay = _BACKOFF_BASE_SECONDS * (2**attempt)
+    return min(delay, _BACKOFF_CAP_SECONDS) + random.uniform(0, 0.5)
+
+
+def _post_with_retry(url: str, headers: dict[str, str], payload: dict[str, Any],
+                     timeout: int) -> Any:
+    """POST with bounded exponential backoff on transient failures."""
+    import requests  # lazy: only needed for the networked backends
+
+    last_error: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        resp = None
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        except requests.RequestException as exc:  # DNS, connection reset, timeout
+            last_error = exc
+        else:
+            if resp.status_code not in _RETRY_STATUSES:
+                resp.raise_for_status()   # non-transient failures raise here
+                return resp
+            last_error = requests.HTTPError(
+                f"{resp.status_code} from {url}", response=resp
+            )
+
+        if attempt < _MAX_ATTEMPTS - 1:
+            time.sleep(_backoff_seconds(resp, attempt))
+
+    raise RuntimeError(
+        f"{url} still failing after {_MAX_ATTEMPTS} attempts"
+    ) from last_error
+
+
 # --- backends ---------------------------------------------------------------
 
 def _generate_anthropic(product: Product) -> dict[str, Any]:
-    import requests  # lazy: only needed for this backend
-
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
     model = os.environ.get("LISTING_LLM_MODEL", "claude-sonnet-5")
-    resp = requests.post(
+    resp = _post_with_retry(
         "https://api.anthropic.com/v1/messages",
         headers={
             "x-api-key": key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         },
-        json={
+        payload={
             "model": model,
             "max_tokens": 2000,
             "messages": [{"role": "user", "content": _build_prompt(product)}],
         },
         timeout=90,
     )
-    resp.raise_for_status()
     parts = [b.get("text", "") for b in resp.json().get("content", []) if b.get("type") == "text"]
     return _extract_json("".join(parts))
 
