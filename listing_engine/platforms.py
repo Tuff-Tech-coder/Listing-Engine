@@ -162,16 +162,22 @@ class KdpAdapter:
             w.append("No subtitle — KDP's subtitle is your single biggest keyword slot.")
 
         title_words = {x.lower() for x in (title + " " + subtitle).split()}
+
+        # Normalise and cap to the slot count BEFORE validating. Validating
+        # first meant warning about keywords that the cap then discarded —
+        # noise about copy that never reaches the listing.
         kws: list[str] = []
-        for k in gen.get("kdp_keywords", []):
-            k = str(k).strip()[: self.KEYWORD_MAX_LEN]
-            if any(word in title_words for word in k.lower().split()):
-                w.append(f"Keyword '{k}' repeats title/subtitle words — wastes a slot.")
+        for raw in gen.get("kdp_keywords", []):
+            k = str(raw).strip()[: self.KEYWORD_MAX_LEN]
             if k:
                 kws.append(k)
         kws = kws[: self.KEYWORD_SLOTS]
+
+        for k in kws:
+            if any(word in title_words for word in k.lower().split()):
+                w.append(f"Keyword '{k}' repeats title/subtitle words — wastes a slot.")
         if len(kws) < self.KEYWORD_SLOTS:
-            w.append(f"Only {len(kws)}/7 keyword slots filled.")
+            w.append(f"Only {len(kws)}/{self.KEYWORD_SLOTS} keyword slots filled.")
 
         cats = gen.get("category_suggestions", {}).get("kdp", "")
 
