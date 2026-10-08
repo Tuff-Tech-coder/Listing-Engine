@@ -3,7 +3,7 @@ import pytest
 
 from listing_engine.engine import generate_listings
 from listing_engine.models import GeneratedListing, Product
-from listing_engine.platforms import ADAPTERS, EbayAdapter, EtsyAdapter, KdpAdapter
+from listing_engine.platforms import EbayAdapter, EtsyAdapter, KdpAdapter
 
 
 @pytest.fixture
@@ -39,6 +39,24 @@ class TestEbayAdapter:
         assert len(out.title) <= 80
         assert any("80" in w for w in out.warnings)
 
+    def test_title_truncation_does_not_cut_a_word(self, product):
+        out = EbayAdapter().render(product, {"ebay_title": "word " * 30})
+        assert len(out.title) <= 80
+        assert out.title.endswith("word")
+
+    def test_null_model_fields_do_not_crash(self, product):
+        out = EbayAdapter().render(product, {
+            "ebay_title": None,
+            "description_html": None,
+            "description_plain": "Fallback",
+            "bullets": None,
+            "ebay_item_specifics": None,
+            "category_suggestions": None,
+        })
+        assert out.title == product.name
+        assert out.description == "Fallback"
+        assert out.bullets == []
+
     def test_warns_when_item_specifics_missing(self, product):
         out = EbayAdapter().render(product, {"ebay_title": "T", "ebay_item_specifics": {}})
         assert any("item specifics" in w.lower() for w in out.warnings)
@@ -69,8 +87,8 @@ class TestEtsyAdapter:
         assert len(out.keywords) == 13
 
     def test_deduplicates_tags(self, product):
-        out = EtsyAdapter().render(product, {"etsy_tags": ["a", "a", "b"]})
-        assert out.keywords == ["a", "b"]
+        out = EtsyAdapter().render(product, {"etsy_tags": ["Gift", "gift", "b"]})
+        assert out.keywords == ["Gift", "b"]
 
     def test_warns_when_under_thirteen_tags(self, product):
         out = EtsyAdapter().render(product, {"etsy_tags": ["a", "b"]})
@@ -81,6 +99,35 @@ class TestEtsyAdapter:
         assert out.extra["api_payload"]["state"] == "draft"
         assert out.extra["api_payload"]["price"] == 49.99
 
+    def test_does_not_invent_policy_sensitive_seller_claims(self, product):
+        out = EtsyAdapter().render(product, {"etsy_title": "T", "etsy_tags": []})
+        payload = out.extra["api_payload"]
+        assert payload["who_made"] is None
+        assert payload["when_made"] is None
+        assert payload["is_supply"] is None
+        assert any("not submit-ready" in warning for warning in out.warnings)
+
+    def test_uses_explicit_etsy_submission_metadata(self, product):
+        product.attributes.update({
+            "etsy_taxonomy_id": "123",
+            "etsy_who_made": "someone_else",
+            "etsy_when_made": "2020_2026",
+            "etsy_is_supply": "true",
+        })
+        out = EtsyAdapter().render(product, {"etsy_title": "T", "etsy_tags": []})
+        payload = out.extra["api_payload"]
+        assert payload["taxonomy_id"] == 123
+        assert payload["who_made"] == "someone_else"
+        assert payload["is_supply"] is True
+        assert not any("not submit-ready" in warning for warning in out.warnings)
+
+    def test_null_collection_fields_do_not_crash(self, product):
+        out = EtsyAdapter().render(product, {
+            "etsy_tags": None, "bullets": None, "category_suggestions": None,
+        })
+        assert out.keywords == []
+        assert out.bullets == []
+
 
 class TestKdpAdapter:
     def test_keywords_capped_at_seven_slots(self, book):
@@ -90,15 +137,36 @@ class TestKdpAdapter:
     def test_keyword_truncated_to_fifty_chars(self, book):
         out = KdpAdapter().render(book, {"kdp_keywords": ["z" * 80]})
         assert all(len(k) <= 50 for k in out.keywords)
+        assert any("KDP keyword exceeded 50" in warning for warning in out.warnings)
 
     def test_warns_on_title_word_repetition(self, book):
         out = KdpAdapter().render(book, {
             "kdp_title": "Dino Coloring Book", "kdp_keywords": ["dino fun"]})
         assert any("repeats title" in w for w in out.warnings)
 
-    def test_warns_when_subtitle_missing(self, book):
+    def test_uses_cover_subtitle_and_ignores_generated_rewrite(self, book):
+        book.attributes["subtitle"] = "Mazes for Ages 6 to 10"
+        out = KdpAdapter().render(book, {"kdp_subtitle": "SEO keyword stuffing"})
+        assert out.extra["subtitle"] == "Mazes for Ages 6 to 10"
+        assert any("subtitle ignored" in warning for warning in out.warnings)
+
+    def test_missing_cover_subtitle_is_valid(self, book):
         out = KdpAdapter().render(book, {"kdp_subtitle": ""})
-        assert any("subtitle" in w.lower() for w in out.warnings)
+        assert not any("No cover subtitle" in warning for warning in out.warnings)
+
+    def test_rejects_title_and_subtitle_at_two_hundred_chars(self, book):
+        book.name = "T" * 150
+        book.attributes["subtitle"] = "S" * 50
+        with pytest.raises(ValueError, match="fewer than 200"):
+            KdpAdapter().render(book, {})
+
+    def test_null_model_collections_do_not_crash(self, book):
+        out = KdpAdapter().render(book, {
+            "kdp_keywords": None, "category_suggestions": None,
+            "description_html": None,
+        })
+        assert out.keywords == []
+        assert out.category == ""
 
     def test_paste_sheet_has_all_seven_slots(self, book):
         out = KdpAdapter().render(book, {"kdp_keywords": ["a", "b"]})
@@ -108,10 +176,13 @@ class TestKdpAdapter:
 
 
 class TestEngine:
-    def test_generates_all_platforms_by_default(self, product):
+    def test_physical_defaults_to_marketplaces(self, product):
         out = generate_listings(product, backend="template")
-        assert set(out) == set(ADAPTERS)
+        assert set(out) == {"ebay", "etsy"}
         assert all(isinstance(v, GeneratedListing) for v in out.values())
+
+    def test_book_defaults_to_kdp(self, book):
+        assert set(generate_listings(book, backend="template")) == {"kdp"}
 
     def test_platform_subset(self, product):
         assert set(generate_listings(product, ["ebay"], backend="template")) == {"ebay"}
@@ -119,6 +190,14 @@ class TestEngine:
     def test_unknown_platform_raises(self, product):
         with pytest.raises(ValueError, match="Unknown platform"):
             generate_listings(product, ["shopify"], backend="template")
+
+    def test_incompatible_platform_raises(self, product):
+        with pytest.raises(ValueError, match="incompatible"):
+            generate_listings(product, ["kdp"], backend="template")
+
+    def test_empty_platform_selection_raises(self, product):
+        with pytest.raises(ValueError, match="At least one"):
+            generate_listings(product, [], backend="template")
 
     def test_template_backend_needs_no_credentials(self, product, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

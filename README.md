@@ -1,7 +1,7 @@
 # Listing Engine
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-21%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-44%20passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Zero dependencies](https://img.shields.io/badge/core-zero%20dependencies-lightgrey)
 
@@ -11,10 +11,10 @@ Writing the same product three times for three marketplaces is duplicated effort
 
 ```bash
 pip install -e .
-listing-engine --file sample_products.json --platforms ebay,etsy,kdp
+listing-engine --file sample_products.json
 ```
 
-That runs with **no API key and no dependencies** — the default `template` backend is a deterministic fallback so you can see the whole pipeline immediately.
+That runs with **no API key and no dependencies** — the default `template` backend is a deterministic fallback so you can see the whole pipeline immediately. Physical products route to eBay and Etsy; books route to KDP. Explicit incompatible selections fail fast instead of generating nonsense listings.
 
 ---
 
@@ -33,7 +33,7 @@ That runs with **no API key and no dependencies** — the default `template` bac
                    │ 80-char cap │   │ 13 tags×20  │   │ 7 kw × 50   │
                    └─────────────┘   └─────────────┘   └─────────────┘
                           │                 │                 │
-                    API payload       API payload      paste-ready sheet
+                   payload preview   payload preview    paste-ready sheet
 ```
 
 **One source of truth.** A `Product` dataclass describes the item once, loosely. Everything downstream derives from it.
@@ -42,9 +42,9 @@ That runs with **no API key and no dependencies** — the default `template` bac
 
 | Platform | Constraints enforced |
 |---|---|
-| **eBay** | 80-char title cap; item specifics required for search ranking; payload shaped to the Sell Inventory API (`createOrReplaceInventoryItem` → `createOffer`) |
-| **Etsy** | 140-char title; max 13 tags; each tag ≤ 20 chars; duplicates dropped; payload shaped to API v3 `createDraftListing` |
-| **KDP** | exactly 7 keyword slots ≤ 50 chars; flags keywords that waste a slot by repeating title words; warns on missing subtitle (KDP's largest free SEO field) |
+| **eBay** | 80-char title cap; word-safe truncation; item-specific warnings; Sell Inventory API payload preview |
+| **Etsy** | 140-char hard cap; clear-title guidance; max 13 tags of ≤20 chars; case-insensitive deduplication; flags missing taxonomy and seller-authored policy fields |
+| **KDP** | title/subtitle must match the cover and total <200 chars; exactly 7 keyword slots ≤50 chars; flags repeated title words |
 
 ---
 
@@ -68,7 +68,7 @@ Adding a backend means writing one function that returns the generation dict and
 
 The `anthropic` backend retries transient failures — HTTP 429 (rate limited), 529 (overloaded) and 5xx — up to four times, honouring the API's `Retry-After` header when present and otherwise backing off exponentially with jitter. Non-transient failures such as a bad API key raise immediately, since retrying them only delays the error.
 
-See [`.env.example`](.env.example) for the environment variables each backend reads.
+See [`.env.example`](.env.example) for the environment variables each backend reads. The project reads process environment variables directly; it does not auto-load a `.env` file.
 
 ---
 
@@ -77,7 +77,7 @@ See [`.env.example`](.env.example) for the environment variables each backend re
 Real output from the shipped `sample_products.json` using the `etsy` adapter on the default `template` backend:
 
 <details>
-<summary><code>listing-engine --file sample_products.json --platforms etsy</code></summary>
+<summary><code>listing-engine --file sample_products.json</code> (Etsy excerpt)</summary>
 
 ```
 ======================================================================
@@ -91,11 +91,13 @@ Wireless Bluetooth Earbuds with Charging Case. Bluetooth 5.3 with low-latency mo
 
 WARNINGS:
   ! Only 9/13 tags used — Etsy SEO rewards using all 13.
+  ! Etsy draft preview is not submit-ready; provide explicit taxonomy_id, who_made,
+    when_made, is_supply metadata and verify the item meets Etsy's Creativity Standards.
 ```
 
 </details>
 
-That warning is the point. The deterministic backend produced only 9 tags, so the adapter flags four unused Etsy SEO slots rather than silently publishing an under-optimized listing.
+Those warnings are the point. The adapter reports unused SEO slots and refuses to invent policy-sensitive seller claims, rather than presenting an unsafe payload as publishable.
 
 ---
 
@@ -105,7 +107,7 @@ That warning is the point. The deterministic backend produced only 9 tags, so th
 
 **Validation lives in the adapter, not the prompt.** Asking a model to "keep it under 80 characters" is a request, not a guarantee. The adapters enforce each limit in code and attach warnings, so a bad generation gets truncated and flagged here rather than rejected at publish time.
 
-**KDP has no `push()`, deliberately.** Amazon KDP has no public listing API. Browser automation against the KDP dashboard exists, but it violates KDP's terms and risks account termination — so it is **not implemented here**. `KdpAdapter` produces a paste-ready metadata sheet instead. The eBay and Etsy adapters build complete, correctly-shaped API payloads; their `push()` raises `NotImplementedError` carrying the exact OAuth call sequence to wire up.
+**KDP has no `push()`, deliberately.** Amazon KDP has no public listing API. Browser automation against the KDP dashboard exists, but it violates KDP's terms and risks account termination — so it is **not implemented here**. `KdpAdapter` produces a paste-ready metadata sheet instead. eBay and Etsy output payload previews; Etsy deliberately leaves policy-sensitive fields unset until the seller supplies truthful taxonomy, production, and supply metadata. Both `push()` methods remain explicit stubs.
 
 Treating "this integration should not be automated" as a design decision rather than a missing feature is intentional.
 
@@ -118,18 +120,20 @@ listing_engine/
 ├── __init__.py     Public API re-exports
 ├── models.py       Product, GeneratedListing  (dataclasses, no deps)
 ├── llm.py          Generation layer + 3 pluggable backends + retry policy
-├── platforms.py    Adapters — limits, validation, API payloads
+├── platforms.py    Adapters — limits, validation, API payload previews
 ├── engine.py       Orchestration: one generation → N renders
 └── cli.py          Command-line runner
 tests/
-└── test_platforms.py   21 tests covering every constraint above
+├── test_platforms.py   Marketplace rules and compatibility
+├── test_llm.py         Parsing, fallback generation and retry behavior
+└── test_cli.py         End-to-end input/output safeguards
 ```
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest -q          # 21 tests
+pytest -q          # 44 tests
 ruff check .
 ```
 

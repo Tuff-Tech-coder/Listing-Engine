@@ -18,6 +18,9 @@ import os
 import random
 import textwrap
 import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+from html import escape
 from typing import Any
 
 from .models import Product
@@ -26,8 +29,8 @@ from .models import Product
 GENERATION_SCHEMA = {
     "ebay_title": "<= 80 chars, keyword-dense, most important terms first, no fluff",
     "etsy_title": "<= 140 chars, readable; pack the best keywords into the first 40 chars",
-    "kdp_title": "the book's main title",
-    "kdp_subtitle": "keyword-rich subtitle (KDP's biggest free SEO slot); '' if not a book",
+    "kdp_title": "the title exactly as printed on the book cover; '' if not a book",
+    "kdp_subtitle": "the subtitle exactly as printed on the book cover; otherwise ''",
     "description_html": "rich description, simple HTML (<p>,<ul>,<li>,<b>), no scripts",
     "description_plain": "same description as plain text, no tags",
     "bullets": ["up to 5 short benefit-led bullet points"],
@@ -48,7 +51,8 @@ def _build_prompt(product: Product) -> str:
     You are an expert marketplace listing copywriter for eBay, Etsy and Amazon KDP.
     Write compelling, accurate, policy-safe listing content for the product below.
     Do not invent specifications that aren't supported by the input. Optimize each
-    field for that platform's search behavior.
+    field for that platform's search behavior. For KDP, title and subtitle are cover
+    metadata: copy them exactly and never invent or keyword-stuff them.
 
     PRODUCT
     -------
@@ -69,14 +73,17 @@ def _build_prompt(product: Product) -> str:
 
 def _extract_json(text: str) -> dict[str, Any]:
     """Pull the first JSON object out of a model response, tolerating fences."""
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.split("```", 2)[1]
-        t = t[4:] if t.lstrip().lower().startswith("json") else t
-    start, end = t.find("{"), t.rfind("}")
-    if start == -1 or end == -1:
-        raise ValueError(f"No JSON object found in model output:\n{text[:500]}")
-    return json.loads(t[start : end + 1])
+    decoder = json.JSONDecoder()
+    for start, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    raise ValueError(f"No JSON object found in model output:\n{text[:500]}")
 
 
 # --- retry policy -----------------------------------------------------------
@@ -102,9 +109,19 @@ def _backoff_seconds(resp: Any, attempt: int) -> float:
         header = resp.headers.get("retry-after")
         if header:
             try:
-                return min(float(header), _BACKOFF_CAP_SECONDS)
+                seconds = float(header)
             except ValueError:
-                pass  # malformed header -- fall through to backoff
+                try:
+                    retry_at = parsedate_to_datetime(header)
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=UTC)
+                    seconds = (retry_at - datetime.now(UTC)).total_seconds()
+                except (TypeError, ValueError, OverflowError):
+                    pass  # malformed header -- fall through to backoff
+                else:
+                    return min(max(seconds, 0.0), _BACKOFF_CAP_SECONDS)
+            else:
+                return min(max(seconds, 0.0), _BACKOFF_CAP_SECONDS)
     delay = _BACKOFF_BASE_SECONDS * (2**attempt)
     return min(delay, _BACKOFF_CAP_SECONDS) + random.uniform(0, 0.5)
 
@@ -190,36 +207,45 @@ def _generate_template(product: Product) -> dict[str, Any]:
 
     long_title = " ".join(x for x in [product.brand, base, cat] if x).strip()
     feat_line = "; ".join(product.features) if product.features else cat
-    plain = (
-        f"{base}. {feat_line}. "
-        + (product.notes or "Quality you can count on.")
-    ).strip()
-    html = "<p>" + plain.replace(". ", ".</p><p>") + "</p>"
+    plain_parts = [part.strip().rstrip(".") for part in (base, feat_line) if part.strip()]
+    plain_parts.append((product.notes or "Quality you can count on.").strip().rstrip("."))
+    plain = ". ".join(plain_parts) + "."
+    html = "".join(f"<p>{escape(part)}.</p>" for part in plain_parts)
     if product.features:
-        html += "<ul>" + "".join(f"<li>{f}</li>" for f in product.features) + "</ul>"
+        html += "<ul>" + "".join(f"<li>{escape(f)}</li>" for f in product.features) + "</ul>"
 
     tags = []
     for s in (seeds + base.lower().split()):
         s = s.strip().lower()
         if s and s not in tags:
-            tags.append(s[:20])
+            tags.append(s)
     tags = tags[:13]
 
-    kw = [f"{cat} {s}".strip()[:50] for s in (seeds[:7] or [base.lower()])][:7]
+    keyword_candidates = [*seeds, cat, base.lower()]
+    kw = []
+    for candidate in keyword_candidates:
+        candidate = candidate.strip()
+        if candidate and candidate.casefold() not in {item.casefold() for item in kw}:
+            kw.append(candidate)
+    kw = kw[:7]
 
     return {
-        "ebay_title": long_title[:80],
-        "etsy_title": long_title[:140],
+        "ebay_title": long_title,
+        "etsy_title": long_title,
         "kdp_title": base if is_book else "",
-        "kdp_subtitle": (cat + " " + " ".join(seeds[:4]))[:120] if is_book else "",
+        "kdp_subtitle": product.attributes.get("subtitle", "") if is_book else "",
         "description_html": html,
         "description_plain": plain,
-        "bullets": product.features[:5] or [feat_line],
+        "bullets": product.features[:5] or ([feat_line] if feat_line else []),
         "etsy_tags": tags,
         "kdp_keywords": kw,
         "ebay_item_specifics": {
             **({"Brand": product.brand} if product.brand else {}),
-            **{k.title(): v for k, v in product.attributes.items()},
+            **{
+                k.title(): v
+                for k, v in product.attributes.items()
+                if not k.startswith("etsy_") and k != "subtitle"
+            },
         },
         "category_suggestions": {"ebay": cat, "etsy": cat, "kdp": cat},
     }
